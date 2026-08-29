@@ -47,6 +47,17 @@ def _max_quantile_drift(current: np.ndarray, baseline: np.ndarray) -> float:
     return float(np.max(np.abs(cur_q - base_q) / scale))
 
 
+def _finite(values: Iterable[float]) -> np.ndarray:
+    parsed: list[float] = []
+    for v in values:
+        try:
+            parsed.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    arr = np.asarray(parsed, dtype=float)
+    return arr[np.isfinite(arr)]
+
+
 def detect_distribution_shift(
     current_values: Iterable[float],
     baseline_values: Iterable[float],
@@ -55,10 +66,33 @@ def detect_distribution_shift(
     psi_threshold: float = 0.2,
     quantile_threshold: float = 3.0,
 ) -> dict[str, Any]:
-    cur = np.asarray(list(current_values), dtype=float)
-    base = np.asarray(list(baseline_values), dtype=float)
-    if cur.size == 0 or base.size == 0:
-        return {"is_anomaly": False, "score": 0.0, "method": "distribution", "reason": "empty_input"}
+    cur = _finite(current_values)
+    base = _finite(baseline_values)
+
+    # An empty *baseline* means we have nothing to compare against -> can't judge.
+    if base.size == 0:
+        return {
+            "is_anomaly": False,
+            "score": 0.0,
+            "method": "distribution",
+            "reason": "insufficient_baseline",
+            "psi": 0.0,
+            "mean_ratio": 1.0,
+            "quantile_drift": 0.0,
+        }
+    # An empty *current* batch is itself an incident: no data arrived while the
+    # baseline says data is expected. Reporting that as "healthy" would hide a
+    # total ingestion failure.
+    if cur.size == 0:
+        return {
+            "is_anomaly": True,
+            "score": float("inf"),
+            "method": "distribution",
+            "reason": "current_batch_empty (no data arrived; baseline is non-empty)",
+            "psi": float("inf"),
+            "mean_ratio": float("inf"),
+            "quantile_drift": float("inf"),
+        }
 
     cur_mean = float(np.mean(cur))
     base_mean = float(np.mean(base))

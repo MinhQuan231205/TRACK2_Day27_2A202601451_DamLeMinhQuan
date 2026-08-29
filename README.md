@@ -118,7 +118,7 @@ Xem chi tiết trong `docs/LAB_GUIDE.md`. Nhật ký quyết định: `reports/a
 | `observability/lineage.py` — column lineage transitive (BFS) + dbt manifest parser | ✅ |
 | `observability/rag_metrics.py` — embedding-norm drift signal | ✅ |
 | `reports/incident_report.md` — worked example (`volume_drop`) | ✅ |
-| Evidence tests | `tests_student/test_reliability.py` (tổng 29 pass cùng public) |
+| Evidence tests | `tests_student/test_reliability.py` (tổng 31 pass cùng public) |
 
 3 public fault đều bị bắt: `duplicate_pk` (contract unique = critical/block + GX block),
 `volume_drop` (anomaly `auto:mad+ewma`, score ≈ 16.5), `stale_kb` (KB freshness contract + KB freshness SLO burn).

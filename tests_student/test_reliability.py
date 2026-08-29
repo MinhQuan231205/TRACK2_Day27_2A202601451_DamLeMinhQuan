@@ -119,6 +119,18 @@ def test_psi_catches_shape_shift_without_mean_blowup():
     assert res["psi"] >= 0.2
 
 
+def test_scale_blowup_at_constant_mean_is_anomaly():
+    # Same mean (0), spread blown up 100x -> must flag.
+    assert detect_distribution([-100, -100, 100, 100], [-1, -1, 1, 1])["is_anomaly"] is True
+
+
+def test_empty_current_batch_is_an_incident_not_healthy():
+    # Nothing arrived while the baseline expects data -> incident, not "healthy".
+    assert detect_distribution([], [1, 2, 3])["is_anomaly"] is True
+    # But an empty baseline gives us nothing to compare against.
+    assert detect_distribution([1, 2, 3], [])["is_anomaly"] is False
+
+
 # ---- SLO multi-window ----------------------------------------------------------
 def test_sustained_fast_burn_pages():
     assert multiwindow_burn(20.0, 16.0)["page"] is True
