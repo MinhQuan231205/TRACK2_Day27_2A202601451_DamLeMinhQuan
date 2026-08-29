@@ -30,8 +30,19 @@ st.subheader("Current signals")
 st.json({
     "row_count_anomaly": report["row_count_anomaly"],
     "kb_text_length_signal": report["kb_text_length_signal"],
+    "kb_freshness": report.get("kb_freshness"),
     "contract_slo": report["contract_slo"],
+    "kb_freshness_slo": report.get("kb_freshness_slo"),
+    "kb_multiwindow_burn": report.get("kb_multiwindow_burn"),
 })
+
+blocking = report.get("blocking_contract_failures") or []
+if blocking:
+    st.error(f"{len(blocking)} BLOCKING contract failure(s) — pipeline should be halted")
+    st.json(blocking)
+burn = report.get("kb_multiwindow_burn") or {}
+if burn.get("page"):
+    st.error(f"PAGE: {burn.get('reason')}")
 
 history = pd.read_csv(HISTORY)
 st.subheader("Historical row count")
@@ -40,4 +51,10 @@ st.line_chart(history.set_index("date")[["row_count"]])
 st.subheader("Example blast radius")
 st.write("stg_orders -> " + " -> ".join(report["sample_blast_radius_from_stg_orders"]))
 
-st.info("TODO: add SLO target, remaining error budget, burn-rate windows, owner/runbook links, and incident status.")
+slo = report.get("kb_freshness_slo") or {}
+if slo:
+    st.subheader("KB freshness SLO")
+    s1, s2, s3 = st.columns(3)
+    s1.metric("Target", slo.get("target"))
+    s2.metric("Burn rate", f"{slo.get('burn_rate', 0):.2f}")
+    s3.metric("Error budget left", f"{slo.get('remaining_error_budget_fraction', 1) * 100:.0f}%")

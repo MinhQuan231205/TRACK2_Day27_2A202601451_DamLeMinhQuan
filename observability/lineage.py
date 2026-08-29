@@ -30,11 +30,14 @@ def get_downstream_assets(graph: dict[str, list[str]], start: str) -> list[str]:
 def get_column_downstream(
     column_graph: dict[str, list[str]], start_column: str
 ) -> list[str]:
-    """TODO(student): implement column-level traversal.
+    """Transitive downstream columns in BFS order, excluding the start column."""
+    return get_downstream_assets(column_graph, start_column)
 
-    Starter returns only direct children, so transitive hidden cases will fail.
-    """
-    return list(column_graph.get(start_column, []))
+
+def load_column_graph(path: str | Path) -> dict[str, list[str]]:
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return payload.get("column_lineage", payload)
 
 
 def extract_dbt_dataset_graph(manifest_path: str | Path) -> dict[str, list[str]]:
@@ -48,8 +51,15 @@ def extract_dbt_dataset_graph(manifest_path: str | Path) -> dict[str, list[str]]
         return {}
     with open(path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
+
+    def is_data_asset(node_id: str) -> bool:
+        # keep models / seeds / sources / snapshots / exposures; drop test nodes
+        return not node_id.startswith(("test.", "unit_test."))
+
     graph: dict[str, list[str]] = {}
     child_map = manifest.get("child_map", {})
     for parent, children in child_map.items():
-        graph[parent] = list(children)
+        if not is_data_asset(parent):
+            continue
+        graph[parent] = [c for c in children if is_data_asset(c)]
     return graph

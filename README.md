@@ -103,21 +103,32 @@ Reset về trạng thái khỏe:
 make reset
 ```
 
-## 5. Những phần cần hoàn thiện
+## 5. Trạng thái hoàn thiện
 
-Xem chi tiết trong `docs/LAB_GUIDE.md`.
+Xem chi tiết trong `docs/LAB_GUIDE.md`. Nhật ký quyết định: `reports/agent_log.md`.
 
-Các TODO quan trọng:
+| Hạng mục | Trạng thái |
+|---|---|
+| `src/contract_validator.py` — type check, freshness, severity→action (block/quarantine/warn), KB `fields`, `min_length` | ✅ |
+| `gx/validate_orders.py` — Suite + ValidationDefinition + Checkpoint + severity actions (exit 2 = block) | ✅ |
+| `dbt_project/` — generic tests (relationships, non_negative, unique), singular `assert_revenue_reconciles`, 2 native unit test (SCD revenue inflation) + fix model | ✅ |
+| `observability/anomaly.py` — segment baseline (same-weekday / business-day), robust MAD (zero-MAD handling), EWMA, `known_event` suppression with `needs_review` passthrough | ✅ |
+| `observability/distribution.py` — PSI + quantile drift + mean ratio | ✅ |
+| `observability/slo.py` — multi-window burn-rate (sustained vs transient) | ✅ |
+| `observability/lineage.py` — column lineage transitive (BFS) + dbt manifest parser | ✅ |
+| `observability/rag_metrics.py` — embedding-norm drift signal | ✅ |
+| `reports/incident_report.md` — worked example (`volume_drop`) | ✅ |
+| Evidence tests | `tests_student/test_reliability.py` (tổng 29 pass cùng public) |
 
-- `src/contract_validator.py`: type checking, freshness, severity/action.
-- `gx/validate_orders.py`: expectation đơn lẻ → Suite/ValidationDefinition/Checkpoint/Actions.
-- `dbt_project/`: thêm singular data test + dbt unit test cho join/SCD.
-- `observability/anomaly.py`: robust baseline, seasonality, MAD/EWMA.
-- `observability/distribution.py`: distribution drift tốt hơn mean ratio.
-- `observability/slo.py`: multi-window burn-rate policy.
-- `observability/lineage.py`: column lineage / OpenLineage optional.
-- `observability/rag_metrics.py`: embedding drift / retrieval metrics optional.
-- `reports/incident_report.md`: incident report cuối lab.
+3 public fault đều bị bắt: `duplicate_pk` (contract unique = critical/block + GX block),
+`volume_drop` (anomaly `auto:mad+ewma`, score ≈ 16.5), `stale_kb` (KB freshness contract + KB freshness SLO burn).
+`make reset && make baseline` trên hệ khỏe: mọi tín hiệu xanh, `row-count anomaly = False` (kể cả cuối tuần).
+
+**Bonus đã làm:**
+- Multi-tier burn-rate policy: `observability/slo.py::evaluate_burn_policy` (2%/1h + 5%/6h → page, 10%/3d → ticket).
+- OpenLineage events: `make lineage` → `reports/openlineage_events.jsonl` (RunEvent spec 2-0-2 + `columnLineage` facet).
+- Column-level transitive lineage: `column_downstream()` (BFS).
+- dbt native unit tests + GX severity actions + KB auto-quarantine.
 
 ## 6. Hidden evaluation
 

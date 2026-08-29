@@ -7,6 +7,12 @@ models:
       - name: order_date
         data_tests:
           - not_null
+          - unique
+      - name: completed_order_rows
+        data_tests:
+          - not_null
+          - non_negative
       - name: daily_revenue
         data_tests:
           - not_null
+          - non_negative

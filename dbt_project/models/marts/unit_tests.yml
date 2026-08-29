@@ -1,0 +1,39 @@
+# dbt native unit tests for fct_daily_revenue.
+#
+# These test transformation *logic* on fixed inputs — not the freshness/shape of
+# production data (that is what data tests like not_null/unique do). The second
+# case is the important one: it fixes the input so a single customer has two
+# active dimension rows, and asserts revenue is NOT doubled.
+
+unit_tests:
+  - name: revenue_sums_completed_orders
+    model: fct_daily_revenue
+    description: One active customer row -> revenue is the plain sum of completed amounts.
+    given:
+      - input: ref('stg_orders')
+        rows:
+          - {order_id: 1, customer_id: C0001, amount_usd: 100.0, status: completed, order_date: '2026-08-01'}
+          - {order_id: 2, customer_id: C0001, amount_usd: 70.0,  status: completed, order_date: '2026-08-01'}
+          - {order_id: 3, customer_id: C0001, amount_usd: 999.0, status: pending,   order_date: '2026-08-01'}
+      - input: ref('stg_customers')
+        rows:
+          - {customer_id: C0001, is_active: true, valid_from: '2026-01-01'}
+    expect:
+      rows:
+        - {order_date: '2026-08-01', completed_order_rows: 2, daily_revenue: 170.0}
+
+  - name: revenue_not_inflated_by_duplicate_active_customer
+    model: fct_daily_revenue
+    description: Two active rows for the same customer must not double revenue.
+    given:
+      - input: ref('stg_orders')
+        rows:
+          - {order_id: 1, customer_id: C0001, amount_usd: 100.0, status: completed, order_date: '2026-08-01'}
+          - {order_id: 2, customer_id: C0001, amount_usd: 70.0,  status: completed, order_date: '2026-08-01'}
+      - input: ref('stg_customers')
+        rows:
+          - {customer_id: C0001, is_active: true, valid_from: '2026-01-01'}
+          - {customer_id: C0001, is_active: true, valid_from: '2026-06-01'}
+    expect:
+      rows:
+        - {order_date: '2026-08-01', completed_order_rows: 2, daily_revenue: 170.0}

@@ -1,6 +1,10 @@
--- NOTE: This model is intentionally simple. If the customer dimension has more
--- than one active row per customer, the join can inflate revenue without a SQL
--- error. Students should add tests/unit tests that expose this failure mode.
+-- Daily completed-order revenue for the CEO dashboard.
+--
+-- The customer dimension can carry SCD history. If more than one row per
+-- customer is flagged is_active = true, the join below fans out and inflates
+-- revenue *without any SQL error*. We defend against that by collapsing the
+-- dimension to exactly one active row per customer before joining.
+-- See tests/assert_revenue_reconciles.sql and unit_tests.yml.
 
 with completed_orders as (
     select *
@@ -8,9 +12,10 @@ with completed_orders as (
     where status = 'completed'
 ),
 active_customers as (
-    select *
+    select customer_id
     from {{ ref('stg_customers') }}
     where is_active = true
+    qualify row_number() over (partition by customer_id order by valid_from desc) = 1
 )
 select
     o.order_date,

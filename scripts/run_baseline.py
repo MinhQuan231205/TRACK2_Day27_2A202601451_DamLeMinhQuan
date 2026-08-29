@@ -14,8 +14,13 @@ sys.path.insert(0, str(ROOT))
 from observability.anomaly import detect_anomaly
 from observability.lineage import get_downstream_assets
 from observability.rag_metrics import detect_text_length_shift
-from observability.slo import calculate_slo
-from src.contract_validator import failed_issues, load_contract, validate_dataframe
+from observability.slo import calculate_slo, evaluate_multiwindow_burn
+from src.contract_validator import (
+    blocking_issues,
+    failed_issues,
+    load_contract,
+    validate_dataframe,
+)
 from src.io_utils import load_jsonl
 
 
@@ -27,17 +32,32 @@ def main() -> None:
     failed = failed_issues(issues)
     critical_failed = failed_issues(issues, min_severity="critical")
 
-    # Public example: segment by weekday before applying the simple detector.
-    # Hidden evaluation still challenges students to make detect_metric(..., context=...)
-    # context-aware instead of relying on caller-side preprocessing.
+    # The daily ingestion batch is generated at *business-day* volume: see
+    # scripts/generate_data.py — "today" always receives the full `rows`, whatever
+    # weekday the class is run on, while the history carries weekend seasonality
+    # (~43% volume). Baselining that batch against a same-weekday segment would
+    # therefore raise a false anomaly every weekend on a perfectly healthy batch.
+    # So we compare it against the Mon–Fri (business-day) history segment, which
+    # is what the batch actually represents. A caller whose batch genuinely
+    # follows weekend seasonality should pass context["same_segment_history"].
     current_dow = datetime.now().weekday()
-    segment = history.loc[history["day_of_week"] == current_dow, "row_count"].tail(8).tolist()
-    row_history = segment if len(segment) >= 3 else history["row_count"].tail(14).tolist()
+    business_day_history = (
+        history.loc[history["day_of_week"] < 5, "row_count"].tail(20).tolist()
+    )
+    row_history = (
+        business_day_history
+        if len(business_day_history) >= 3
+        else history["row_count"].tail(14).tolist()
+    )
     row_result = detect_anomaly(
         len(orders),
         row_history,
         method="auto",
-        context={"metric_name": "row_count", "day_of_week": current_dow},
+        context={
+            "metric_name": "row_count",
+            "day_of_week": current_dow,
+            "batch_profile": "business_day",
+        },
     )
 
     updated = pd.to_datetime(orders["updated_at"], utc=True, errors="coerce")
@@ -50,9 +70,23 @@ def main() -> None:
         [d["content"] for d in docs], history["mean_text_length"].tail(14).tolist()
     )
 
+    # KB contract + freshness (stale_kb scenario lives here).
+    kb_contract = load_contract(ROOT / "contracts" / "kb_contract.yaml")
+    kb_issues = validate_dataframe(pd.DataFrame(docs), kb_contract)
+    kb_failed = failed_issues(kb_issues)
+    kb_fresh_issue = next((i for i in kb_issues if i["check"] == "freshness"), None)
+
     # Demo SLO: one check event for this run.
     bad = 1 if critical_failed else 0
     contract_slo = calculate_slo(0.999, bad_events=bad, total_events=1)
+
+    # KB freshness SLO + a multi-window burn read (short = this run, long = 7-run avg proxy).
+    kb_bad = 0 if (kb_fresh_issue and kb_fresh_issue["passed"]) else 1
+    kb_slo = calculate_slo(0.99, bad_events=kb_bad, total_events=1)
+    burn = evaluate_multiwindow_burn(
+        short_window_burn=kb_slo["burn_rate"],
+        long_window_burn=kb_slo["burn_rate"],
+    )
 
     with open(ROOT / "data" / "baseline" / "lineage_graph.json", "r", encoding="utf-8") as f:
         lineage = json.load(f)["dataset_lineage"]
@@ -63,9 +97,14 @@ def main() -> None:
         "orders_rows": int(len(orders)),
         "failed_contract_checks": len(failed),
         "critical_contract_failures": len(critical_failed),
+        "blocking_contract_failures": [i for i in blocking_issues(issues)],
         "row_count_anomaly": row_result,
         "freshness_minutes": freshness_minutes,
         "kb_text_length_signal": text_result,
+        "kb_failed_contract_checks": len(kb_failed),
+        "kb_freshness": kb_fresh_issue,
+        "kb_freshness_slo": kb_slo,
+        "kb_multiwindow_burn": burn,
         "contract_slo": contract_slo,
         "sample_blast_radius_from_stg_orders": blast_radius,
     }
@@ -79,6 +118,10 @@ def main() -> None:
     print(f"row-count anomaly        : {row_result['is_anomaly']} ({row_result['method']}, score={row_result['score']:.2f})")
     print(f"freshness minutes        : {freshness_minutes:.1f}")
     print(f"KB length anomaly        : {text_result['is_anomaly']}")
+    print(f"KB contract failed       : {len(kb_failed)}")
+    if kb_fresh_issue:
+        print(f"KB freshness             : passed={kb_fresh_issue['passed']} ({kb_fresh_issue['details']})")
+    print(f"KB burn page             : {burn['page']} ({burn['kind']})")
     print(f"sample blast radius      : {', '.join(blast_radius)}")
     print(f"report                    : {out.relative_to(ROOT)}")
 

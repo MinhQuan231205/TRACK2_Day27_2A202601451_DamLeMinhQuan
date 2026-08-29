@@ -6,5 +6,9 @@ warehouse/*.duckdb
 dbt_project/target/
 dbt_project/logs/
 dbt_project/dbt_packages/
+dbt_project/.user.yml
+reports/latest_metrics.json
+reports/gx_validation_result.json
+reports/openlineage_events.jsonl
 .streamlit/
 .DS_Store
